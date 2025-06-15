@@ -2,7 +2,5 @@
 
 .ipynb_checkpoints/
 
-*.pt
-
 *.pyc
 Reconstruction_grid.png 
