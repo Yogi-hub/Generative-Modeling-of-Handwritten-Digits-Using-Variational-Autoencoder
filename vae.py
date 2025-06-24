@@ -32,14 +32,22 @@ class Decoder(nn.Module):
         super().__init__()
         self.fc = nn.Linear(latent_dim, 64 * 7 * 7)
         self.deconv = nn.Sequential(
-            nn.ConvTranspose2d(64, 32, 4, 2, 1),  # -> (32, 14, 14)
+            nn.ConvTranspose2d(64, 64, 3, 1, 1),
             nn.ReLU(),
-            nn.ConvTranspose2d(32, 1, 4, 2, 1),   # -> (1, 28, 28)
+            nn.ConvTranspose2d(64, 32, 4, 2, 1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 1, 4, 2, 1)
         )
+        self.output_mu = nn.Conv2d(1, 1, kernel_size=3, padding=1)
+        self.output_logvar = nn.Conv2d(1, 1, kernel_size=3, padding=1)
 
     def forward(self, z):
         x = self.fc(z).view(-1, 64, 7, 7)
-        return self.deconv(x)
+        x = self.deconv(x)
+        mu = self.output_mu(x)
+        logvar = self.output_logvar(x)
+        return mu, logvar
+
 
 class VAE(nn.Module):
     def __init__(self, latent_dim=20):
@@ -48,15 +56,18 @@ class VAE(nn.Module):
         self.decoder = Decoder(latent_dim)
 
     def forward(self, x):
-        mu, logvar = self.encoder(x)
+        mu, logvar = self.encoder(x)           
         z = reparameterize(mu, logvar)
-        x_recon = self.decoder(z)
-        return x_recon, mu, logvar
+        mu_x, logvar_x = self.decoder(z)
+        # x_recon = mu_x
+        x_recon = reparameterize(mu_x, logvar_x)
+        return x_recon, mu, logvar, mu_x, logvar_x    
 
-def vae_loss(x, x_recon, mu, logvar):
-    recon_loss = F.mse_loss(x_recon, x, reduction='sum')
-    kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return recon_loss + kl_div
+def vae_loss(x, x_recon, mu_z, logvar_z, mu_x, logvar_x):
+    recon_logprob = -0.5 * (logvar_x + ((x - mu_x) ** 2) / logvar_x.exp())
+    sum_recon_logprob = recon_logprob.sum()
+    kl_divergence = -0.5 * torch.sum(1 + logvar_z - mu_z.pow(2) - logvar_z.exp())
+    return -(sum_recon_logprob - kl_divergence)
 
 # Function to train the VAE
 def train_vae(model, train_loader, val_loader, optimizer, device, epochs=20, patience=None):
@@ -71,8 +82,8 @@ def train_vae(model, train_loader, val_loader, optimizer, device, epochs=20, pat
         for x, _ in train_loader:
             x = x.to(device)
             optimizer.zero_grad()
-            x_recon, mu, logvar = model(x)
-            loss = vae_loss(x, x_recon, mu, logvar)
+            x_recon, mu, logvar, mu_x, logvar_x = model(x)
+            loss = vae_loss(x, x_recon, mu, logvar, mu_x, logvar_x)
             loss.backward()
             optimizer.step()
             total_train_loss += loss.item()
@@ -82,8 +93,8 @@ def train_vae(model, train_loader, val_loader, optimizer, device, epochs=20, pat
         with torch.no_grad():
             for x, _ in val_loader:
                 x = x.to(device)
-                x_recon, mu, logvar = model(x)
-                total_val_loss += vae_loss(x, x_recon, mu, logvar).item()
+                x_recon, mu, logvar, mu_x, logvar_x = model(x)
+                total_val_loss += vae_loss(x, x_recon, mu, logvar, mu_x, logvar_x).item()
 
         train_loss = total_train_loss / len(train_loader.dataset)
         val_loss = total_val_loss / len(val_loader.dataset)
