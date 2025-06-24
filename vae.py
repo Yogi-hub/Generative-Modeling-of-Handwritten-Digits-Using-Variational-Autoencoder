@@ -7,14 +7,16 @@ class Encoder(nn.Module):
     def __init__(self, latent_dim):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(1, 32, 4, 2, 1), 
+            nn.Conv2d(1, 32, 4, 2, 1),
             nn.ReLU(),
             nn.Conv2d(32, 64, 4, 2, 1),
             nn.ReLU(),
+            nn.Conv2d(64, 128, 3, 1, 1),
+            nn.ReLU(),
             nn.Flatten()
         )
-        self.fc_mu = nn.Linear(64 * 7 * 7, latent_dim)
-        self.fc_logvar = nn.Linear(64 * 7 * 7, latent_dim)
+        self.fc_mu = nn.Linear(128 * 7 * 7, latent_dim)
+        self.fc_logvar = nn.Linear(128 * 7 * 7, latent_dim)
 
     def forward(self, x):
         x = self.conv(x)
@@ -33,10 +35,15 @@ class Decoder(nn.Module):
         self.fc = nn.Linear(latent_dim, 64 * 7 * 7)
         self.deconv = nn.Sequential(
             nn.ConvTranspose2d(64, 64, 3, 1, 1),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.ConvTranspose2d(64, 32, 4, 2, 1),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.ConvTranspose2d(32, 1, 4, 2, 1)
+            nn.ConvTranspose2d(32, 16, 4, 2, 1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+            nn.Conv2d(16, 1, kernel_size=3, padding=1)
         )
         self.output_mu = nn.Conv2d(1, 1, kernel_size=3, padding=1)
         self.output_logvar = nn.Conv2d(1, 1, kernel_size=3, padding=1)
